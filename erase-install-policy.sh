@@ -1,5 +1,9 @@
 #!/bin/zsh
 
+# This policy is meant to be run via a policy in Jamf
+# Variable 4 is the "reinstall" or "erase" flag and if left blank will use "reinstall"
+# Variable 5 is the version of macOS to install (i.e. 14)
+
 # Date and Time function for the log file
 fDateTime () { echo $(date +"%a %b %d %T"); }
 
@@ -24,8 +28,21 @@ echoFunc "======================== Starting Erase-Install via Policy Script ====
 
 echoFunc "Run erase-install via policy"
 echoFunc "Created by PhillyPhoto 28Sep23"
-echoFunc "Installing the base erase-install script"
+
+runType="$4"
+macOSFVer=$5
+legacy=$(if [[ $(/usr/bin/sw_vers -buildVersion | cut -c1-2) -ge 21 ]]; then echo "false"; else echo "true"; fi)
+
+echoFunc "Installing erase-install"
 jamf policy -trigger eraseinstallbase
+
+if $legacy
+then
+    echoFunc "Installing Swift Dialog 2.2.1"
+    jamf policy -trigger swiftdialog221
+fi
+
+echoFunc "SwiftDialog Version: '$(/usr/local/bin/dialog --version)'"
 
 if [[ -e /Library/Management/erase-install/erase-install.sh ]]
 then
@@ -35,10 +52,6 @@ else
     echoFunc "erase-install.sh NOT found, exiting!"
     exitFunc 1
 fi
-
-# Variables passed by the policy
-runType="$4"
-macOSFVer=$5
 
 echoFunc "Requested run type (if any):          '$runType'"
 echoFunc "Current macOS Major version:          '$(sw_vers -productVersion | cut -d. -f1)'"
@@ -65,8 +78,15 @@ case $runType in
     ;;
 esac
 
-echoFunc "Running command:                      '/Library/Management/erase-install/erase-install.sh $runTypeVar --os=$macOSFVer --min-drive-space=40 --current-user --check-power --dialog-on-download --no-fs'"
+echoFunc "Setting runtime flag file"
+runtimeFile="/var/log/erase-install/$(echo $(date +"%Y %b %d %H%M%S")).txt"
+if [[ ! -d "/var/log/erase-install/" ]]
+then
+    mkdir "/var/log/erase-install/"
+fi
+echo "Command: '/Library/Management/erase-install/erase-install.sh $runTypeVar --os=$macOSFVer --min-drive-space=40 --check-power --no-fs --rebootdelay 150 --no-timeout'" >> "$runtimeFile"
 
-/Library/Management/erase-install/erase-install.sh $runTypeVar --os=$macOSFVer --min-drive-space=40 --current-user --check-power --dialog-on-download --no-fs
+echoFunc "Running command:                      '/Library/Management/erase-install/erase-install.sh $runTypeVar --os=$macOSFVer --min-drive-space=40 --check-power --no-fs --rebootdelay 150 --no-timeout'"
+/Library/Management/erase-install/erase-install.sh $runTypeVar --os=$macOSFVer --min-drive-space=40 --rebootdelay 150 --check-power --no-fs --no-timeout
 
 exitFunc $?
